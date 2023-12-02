@@ -43,7 +43,7 @@ from .utils.jinja import (
 	render_template,
 )
 
-__version__ = "15.0.0-dev"
+__version__ = "16.0.0-dev"
 __title__ = "Frappe Framework"
 
 controllers = {}
@@ -58,6 +58,32 @@ _tune_gc = bool(sbool(os.environ.get("FRAPPE_TUNE_GC", True)))
 if _dev_server:
 	warnings.simplefilter("always", DeprecationWarning)
 	warnings.simplefilter("always", PendingDeprecationWarning)
+
+# Always initialize sentry SDK if the DSN is sent
+if sentry_dsn := os.getenv("FRAPPE_SENTRY_DSN"):
+	import sentry_sdk
+	from sentry_sdk.integrations.argv import ArgvIntegration
+	from sentry_sdk.integrations.atexit import AtexitIntegration
+	from sentry_sdk.integrations.dedupe import DedupeIntegration
+	from sentry_sdk.integrations.excepthook import ExcepthookIntegration
+	from sentry_sdk.integrations.modules import ModulesIntegration
+
+	from frappe.utils.sentry import before_send
+
+	sentry_sdk.init(
+		dsn=sentry_dsn,
+		before_send=before_send,
+		release=__version__,
+		auto_enabling_integrations=False,
+		default_integrations=False,
+		integrations=[
+			AtexitIntegration(),
+			ExcepthookIntegration(),
+			DedupeIntegration(),
+			ModulesIntegration(),
+			ArgvIntegration(),
+		],
+	)
 
 
 class _dict(dict):
@@ -163,6 +189,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 	from frappe.database.mariadb.database import MariaDBDatabase
 	from frappe.database.postgres.database import PostgresDatabase
+	from frappe.email.doctype.email_queue.email_queue import EmailQueue
 	from frappe.model.document import Document
 	from frappe.query_builder.builder import MariaDB, Postgres
 	from frappe.utils.redis_wrapper import RedisWrapper
@@ -237,7 +264,7 @@ def init(site: str, sites_path: str = ".", new_site: bool = False, force=False) 
 	local.jloader = None
 	local.cache = {}
 	local.form_dict = _dict()
-	local.preload_assets = {"style": [], "script": []}
+	local.preload_assets = {"style": [], "script": [], "icons": []}
 	local.session = _dict()
 	local.dev_server = _dev_server
 	local.qb = get_query_builder(local.conf.db_type)
@@ -665,7 +692,7 @@ def sendmail(
 	print_letterhead=False,
 	with_container=False,
 	email_read_tracker_url=None,
-):
+) -> Optional["EmailQueue"]:
 	"""Send email using user's default **Email Account** or global default **Email Account**.
 
 
@@ -750,7 +777,7 @@ def sendmail(
 	)
 
 	# build email queue and send the email if send_now is True.
-	builder.process(send_now=now)
+	return builder.process(send_now=now)
 
 
 whitelisted = []
